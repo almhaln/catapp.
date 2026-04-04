@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,8 +11,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
 import random
-import bcrypt
-import hashlib
 
 # Import authentication module
 try:
@@ -1053,6 +1052,176 @@ def dashboard_page():
                 if st.button(f"📊 View Details", key=f"view_details_{cat}", use_container_width=True):
                     st.session_state.selected_cat = cat
                     st.switch_page("pages/2_View_Health_Data.py")
+
+def data_management_page():
+    """Page for managing data - delete, export, import"""
+    st.header("⚙️ Data Management")
+    
+    st.warning("⚠️ **Caution:** Actions on this page can permanently delete your data!")
+    
+    # Export data section
+    st.markdown("---")
+    st.subheader("📥 Export Data")
+    st.write("Download all your data as JSON files for backup.")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📥 Export Health Data", use_container_width=True):
+            health_json = json.dumps(st.session_state.health_data, indent=2, default=str)
+            st.download_button(
+                label="💾 Download Health Data",
+                data=health_json,
+                file_name=f"health_data_{date.today()}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+    
+    with col2:
+        if st.button("📥 Export Task Logs", use_container_width=True):
+            tasks_json = json.dumps(st.session_state.task_logs, indent=2, default=str)
+            st.download_button(
+                label="💾 Download Task Logs",
+                data=tasks_json,
+                file_name=f"task_logs_{date.today()}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+    
+    with col3:
+        if st.button("📥 Export Profiles", use_container_width=True):
+            profiles_json = json.dumps(st.session_state.cat_profiles, indent=2, default=str)
+            st.download_button(
+                label="💾 Download Profiles",
+                data=profiles_json,
+                file_name=f"cat_profiles_{date.today()}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+    
+    # Delete specific data section
+    st.markdown("---")
+    st.subheader("🗑️ Delete Specific Data")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Delete Health Data for a Cat:**")
+        cat_to_delete = st.selectbox("Select cat", [""] + st.session_state.cats, key="delete_cat_health")
+        
+        if cat_to_delete:
+            if st.button(f"🗑️ Delete {cat_to_delete}'s Health Data", type="secondary"):
+                if cat_to_delete in st.session_state.health_data:
+                    del st.session_state.health_data[cat_to_delete]
+                    save_data()
+                    st.success(f"✅ Deleted health data for {cat_to_delete}")
+                    st.rerun()
+                else:
+                    st.info(f"No health data found for {cat_to_delete}")
+    
+    with col2:
+        st.write("**Delete Task Logs for a Date Range:**")
+        delete_task_start = st.date_input("Start Date", key="delete_task_start")
+        delete_task_end = st.date_input("End Date", key="delete_task_end")
+        
+        if st.button("🗑️ Delete Task Logs", type="secondary"):
+            deleted_count = 0
+            current = delete_task_start
+            while current <= delete_task_end:
+                date_str = str(current)
+                if date_str in st.session_state.task_logs:
+                    del st.session_state.task_logs[date_str]
+                    deleted_count += 1
+                current += timedelta(days=1)
+            
+            save_data()
+            st.success(f"✅ Deleted task logs for {deleted_count} days")
+            st.rerun()
+    
+    # Delete ALL data section
+    st.markdown("---")
+    st.subheader("🚨 Delete All Data")
+    st.error("**WARNING:** This will permanently delete ALL data including health entries, task logs, and cat profiles!")
+    
+    # Confirmation checkbox
+    confirm_delete = st.checkbox("I understand this action cannot be undone", key="confirm_delete_all")
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        if st.button("🗑️ Delete ALL Health Data", type="secondary", disabled=not confirm_delete, use_container_width=True):
+            st.session_state.health_data = {}
+            st.session_state.last_entries = {cat: None for cat in st.session_state.cats}
+            save_data()
+            st.success("✅ All health data deleted!")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Delete ALL Task Logs", type="secondary", disabled=not confirm_delete, use_container_width=True):
+            st.session_state.task_logs = {}
+            save_data()
+            st.success("✅ All task logs deleted!")
+            st.rerun()
+    
+    # Complete reset
+    st.markdown("---")
+    st.subheader("🔄 Complete Reset")
+    st.error("**DANGER ZONE:** This will reset EVERYTHING including profiles!")
+    
+    confirm_reset = st.checkbox("I want to completely reset the application", key="confirm_reset")
+    
+    if st.button("🔄 RESET EVERYTHING", type="secondary", disabled=not confirm_reset):
+        # Delete all session state data
+        st.session_state.health_data = {}
+        st.session_state.task_logs = {}
+        st.session_state.cat_profiles = {
+            cat: {
+                'age': '', 'breed': '', 'weight': '', 
+                'vet_visits': [], 'notes': ''
+            } for cat in st.session_state.cats
+        }
+        st.session_state.last_entries = {cat: None for cat in st.session_state.cats}
+        st.session_state.chat_messages = []
+        
+        # Delete files
+        try:
+            if os.path.exists('health_data.json'):
+                os.remove('health_data.json')
+            if os.path.exists('task_logs.json'):
+                os.remove('task_logs.json')
+            if os.path.exists('cat_profiles.json'):
+                os.remove('cat_profiles.json')
+        except:
+            pass
+        
+        st.success("✅ Application completely reset! Reloading...")
+        time.sleep(1)
+        st.rerun()
+    
+    # Statistics
+    st.markdown("---")
+    st.subheader("📊 Data Statistics")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        total_health_entries = sum(
+            len(dates) 
+            for cat_data in st.session_state.health_data.values() 
+            for dates in cat_data.values()
+        )
+        st.metric("Total Health Entries", total_health_entries)
+    
+    with col2:
+        total_task_logs = sum(len(logs) for logs in st.session_state.task_logs.values())
+        st.metric("Total Task Completions", total_task_logs)
+    
+    with col3:
+        total_vet_visits = sum(
+            len(profile.get('vet_visits', [])) 
+            for profile in st.session_state.cat_profiles.values()
+        )
+        st.metric("Total Vet Visits", total_vet_visits)
 
 def check_reminders():
     """Check and display reminders"""

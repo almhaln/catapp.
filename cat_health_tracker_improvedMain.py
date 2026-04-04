@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -25,13 +26,13 @@ except ImportError:
     AUTH_ENABLED = False
     st.warning("⚠️ auth_module.py not found. Authentication disabled. Upload auth_module.py to enable security.")
 
-# Hugging Face AI Integration
+# Hugging Face AI Integration - LINE 62-72
 try:
     import requests
-    HF_API_KEY = st.secrets.get("HF_API_KEY", None)
+    HF_API_KEY = st.secrets.get("HF_API_KEY", None)  # LINE 64
     if HF_API_KEY:
         HF_BASE_URL = "https://api-inference.huggingface.co/models"
-        HF_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # Ethical and powerful model
+        HF_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # LINE 68
     else:
         HF_API_KEY = None
         st.warning("⚠️ Hugging Face API key not found. AI chat will use basic responses.")
@@ -256,11 +257,11 @@ def get_task_completions(start_date: date, end_date: date) -> Dict:
             completions[date_str] = day_logs
     return completions
 
-# Hugging Face AI Integration Functions
+# Hugging Face AI Integration Functions - LINE 392-422
 def call_huggingface_ai(user_message: str, cat_data: Dict = None) -> str:
     """Call Hugging Face API for intelligent responses"""
-    if not HF_API_KEY:
-        return get_fallback_ai_response(user_message, cat_data)
+    if not HF_API_KEY:  # LINE 394
+        return get_fallback_ai_response(user_message, cat_data)  # LINE 395
     
     try:
         # Prepare prompt with context
@@ -279,12 +280,12 @@ Response:"""
         payload = {"inputs": context, "parameters": {"max_new_tokens": 500, "temperature": 0.7}}
         
         headers = {
-            "Authorization": f"Bearer {HF_API_KEY}",
+            "Authorization": f"Bearer {HF_API_KEY}",  # LINE 413
             "Content-Type": "application/json"
         }
         
         response = requests.post(
-            f"{HF_BASE_URL}/{HF_MODEL}",
+            f"{HF_BASE_URL}/{HF_MODEL}",  # LINE 417
             json=payload,
             headers=headers,
             timeout=30
@@ -519,7 +520,7 @@ def cat_profiles_page():
                     div>
                         strong>Breed:</<strong> {profile.get('breed', 'Not set')}
                     </div>
-                    div>
+                    <div>
                         <strong>Vet Visits:</strong> {len(profile.get('vet_visits', []))}
                     </div>
                     <div>
@@ -528,7 +529,7 @@ def cat_profiles_page():
                 </div>
                 
                 <div style='margin-bottom: 15px;'>
-                    strong>Notes:</<strong> {profile.get('notes', 'No notes')}
+                    <strong>Notes:</strong> {profile.get('notes', 'No notes')}
                 </div>
                 
                 <div style='display: flex; gap: 10px;'>
@@ -1503,3 +1504,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```

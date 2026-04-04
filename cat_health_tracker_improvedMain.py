@@ -25,17 +25,18 @@ except ImportError:
     AUTH_ENABLED = False
     st.warning("⚠️ auth_module.py not found. Authentication disabled. Upload auth_module.py to enable security.")
 
-# Thaura AI integration (replacing other AI providers)
+# Hugging Face AI Integration
 try:
     import requests
-    THAURA_API_KEY = st.secrets.get("THAURA_API_KEY", None)
-    if THAURA_API_KEY:
-        THAURA_BASE_URL = "https://api.thaura.ai/v1"
+    HF_API_KEY = st.secrets.get("HF_API_KEY", None)
+    if HF_API_KEY:
+        HF_BASE_URL = "https://api-inference.huggingface.co/models"
+        HF_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # Ethical and powerful model
     else:
-        THAURA_API_KEY = None
-        st.warning("⚠️ Thaura API key not found. AI chat will use basic responses.")
+        HF_API_KEY = None
+        st.warning("⚠️ Hugging Face API key not found. AI chat will use basic responses.")
 except ImportError:
-    THAURA_API_KEY = None
+    HF_API_KEY = None
 
 # Initialize session state
 def init_session_state():
@@ -51,7 +52,7 @@ def init_session_state():
         st.session_state.tasks = {
             'daily': [
                 'Clean food bowl', 'Add water', 'Clean litter box', 
-                'Let them out my room', 'Leave them alone'
+                'Let them out my room', 'Leave them alone', 'Pray for them'
             ],
             'weekly': ['Clean water fountain', 'Clean room'],
             'monthly': [
@@ -64,7 +65,7 @@ def init_session_state():
     if 'task_schedules' not in st.session_state:
         st.session_state.task_schedules = {
             'daily': {'Clean food bowl': 1, 'Add water': 1, 'Clean litter box': 2, 
-                     'Let them out my room': 2, 'Leave them alone': 1},
+                     'Let them out my room': 2, 'Leave them alone': 1, 'Pray for them': 1},
             'weekly': {'Clean water fountain': 1, 'Clean room': 2},
             'monthly': {'Deep clean litter box': 1, 'Buy food': 1, 'Buy wet food': 1, 
                        'Buy litter': 1, 'Buy treats': 1, 'Buy toys': 1}
@@ -97,6 +98,16 @@ def init_session_state():
         st.session_state.new_task_name = ''
     if 'new_task_frequency' not in st.session_state:
         st.session_state.new_task_frequency = 'daily'
+
+    # Initialize health entry editing state
+    if 'editing_health_entry' not in st.session_state:
+        st.session_state.editing_health_entry = False
+    if 'edit_entry_data' not in st.session_state:
+        st.session_state.edit_entry_data = {}
+    if 'edit_entry_cat' not in st.session_state:
+        st.session_state.edit_entry_cat = None
+    if 'edit_entry_date' not in st.session_state:
+        st.session_state.edit_entry_date = None
 
 # Data persistence functions
 def save_data():
@@ -226,35 +237,46 @@ def get_task_completions(start_date: date, end_date: date) -> Dict:
             completions[date_str] = day_logs
     return completions
 
-# Thaura AI Integration Functions
-def call_thaura_ai(user_message: str, cat_data: Dict = None) -> str:
-    """Call Thaura AI API for intelligent responses"""
-    if not THAURA_API_KEY:
+# Hugging Face AI Integration Functions
+def call_huggingface_ai(user_message: str, cat_data: Dict = None) -> str:
+    """Call Hugging Face API for intelligent responses"""
+    if not HF_API_KEY:
         return get_fallback_ai_response(user_message, cat_data)
     
     try:
-        # Prepare context for Thaura
-        context = {
-            "user_message": user_message,
-            "cat_data": cat_data,
-            "app_purpose": "cat health tracking and management"
-        }
+        # Prepare prompt with context
+        context = f"""You are an ethical AI assistant specializing in cat care and health. You have access to the following cat data:
+        
+Cats: {cat_data.get('cats', [])}
+Health Data: {cat_data.get('health_data', {})}
+Profiles: {cat_data.get('profiles', {})}
+
+User Question: {user_message}
+
+Please provide helpful, ethical, and accurate advice about cat care. Focus on the wellbeing of the cats and responsible pet ownership. If you don't have specific information about the cats, provide general best practices for cat care.
+
+Response:"""
+
+        payload = {"inputs": context, "parameters": {"max_new_tokens": 500, "temperature": 0.7}}
         
         headers = {
-            "Authorization": f"Bearer {THAURA_API_KEY}",
+            "Authorization": f"Bearer {HF_API_KEY}",
             "Content-Type": "application/json"
         }
         
         response = requests.post(
-            f"{THAURA_BASE_URL}/chat",
-            json={"message": user_message, "context": context},
+            f"{HF_BASE_URL}/{HF_MODEL}",
+            json=payload,
             headers=headers,
             timeout=30
         )
         
         if response.status_code == 200:
             result = response.json()
-            return result.get("response", "I'm sorry, I couldn't process your request.")
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get('generated_text', '').split('Response:')[1].strip() if 'Response:' in result[0].get('generated_text', '') else result[0].get('generated_text', 'I apologize, but I could not generate a response.')
+            else:
+                return get_fallback_ai_response(user_message, cat_data)
         else:
             return get_fallback_ai_response(user_message, cat_data)
             
@@ -286,6 +308,9 @@ def get_fallback_ai_response(user_message: str, cat_data: Dict = None) -> str:
     
     elif any(word in message_lower for word in ['shopping', 'buy', 'purchase']):
         return "🛒 Monthly shopping should include: high-quality cat food, wet food, litter, treats, and toys. Check expiration dates and store food properly."
+    
+    elif any(word in message_lower for word in ['pray', 'blessing', 'dua']):
+        return "🙏 Praying for your cats is a beautiful way to show love and care. May Allah bless them with health, happiness, and long life. Ameen."
     
     else:
         return "🐱 I'm here to help with your cat care! Ask about feeding, litter box care, vet visits, grooming, or any other cat-related questions. For urgent health concerns, always consult your veterinarian."
@@ -462,153 +487,262 @@ def generate_cat_summary(cat_name: str) -> str:
 
 # Page Functions
 def cat_profiles_page():
-    """Page for managing cat profiles"""
+    """Page for managing cat profiles with card layout"""
     st.header("🐱 Cat Profiles")
     
-    # Display cat profiles
+    # Display cat profiles in card layout
     for cat in st.session_state.cats:
         profile = st.session_state.cat_profiles[cat]
         
-        with st.expander(f"🐱 {cat}", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                age = st.text_input("Age", value=profile.get('age', ''), placeholder="e.g., 3 years", key=f"age_{cat}")
-                breed = st.text_input("Breed", value=profile.get('breed', ''), placeholder="e.g., Persian", key=f"breed_{cat}")
-                weight = st.text_input("Weight (kg)", value=profile.get('weight', ''), placeholder="e.g., 4.5", key=f"weight_{cat}")
-            
-            with col2:
-                st.write("**Vet Visits:**")
-                vet_count = len(profile.get('vet_visits', []))
-                st.write(f"**Vet Visits:** {vet_count}")
+        with st.container():
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                <h3 style='color: #2c3e50; margin-bottom: 15px;'>🐱 {cat}</h3>
                 
-                if st.button(f"✏️ Edit Profile", key=f"edit_{cat}", use_container_width=True):
-                    st.session_state.editing_cat = cat
-                    st.rerun()
+                <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;'>
+                    <div>
+                        <strong>Age:</strong> {profile.get('age', 'Not set')}
+                    </div>
+                    div>
+                        <strong>Breed:</strong> {profile.get('breed', 'Not set')}
+                    </div>
+                    <div>
+                        <strong>Weight:</strong> {profile.get('weight', 'Not set')} kg
+                    </div>
+                    div>
+                        <strong>Vet Visits:</strong> {len(profile.get('vet_visits', []))}
+                    </div>
+                </div>
+                
+                <div style='margin-bottom: 15px;'>
+                    strong>Notes:</<strong> {profile.get('notes', 'No notes')}
+                </div>
+                
+                <div style='display: flex; gap: 10px;'>
+                    <button onclick='window.location.href="#add_visit"' style='background: #3498db; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;'>🏥 Add Visit</button>
+                    <button onclick='window.location.href="#edit_profile"' style='background: #2ecc71; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;'>✏️ Edit Profile</button>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Edit form (initially hidden)
+        if st.session_state.get(f'edit_{cat}', False):
+            st.markdown(f"## ✏️ Editing: **{cat}**")
+            
+            profile = st.session_state.cat_profiles[cat]
+            
+            # Create tabs for better organization
+            tab1, tab2 = st.tabs(["📋 Basic Info", "🏥 Vet Visits"])
+            
+            with tab1:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    age = st.text_input("Age", value=profile.get('age', ''), key=f"edit_age_{cat}")
+                    breed = st.text_input("Breed", value=profile.get('breed', ''), key=f"edit_breed_{cat}")
+                
+                with col2:
+                    weight = st.text_input("Weight (kg)", value=profile.get('weight', ''), key=f"edit_weight_{cat}")
+                    notes = st.text_area("Additional Notes", value=profile.get('notes', ''), 
+                                       key=f"edit_notes_{cat}", height=100)
+            
+            with tab2:
+                # Display existing vet visits in a nice table
+                vet_visits = profile.get('vet_visits', [])
+                
+                if vet_visits:
+                    st.markdown("### 📊 Recorded Visits")
+                    
+                    # Create DataFrame for better display
+                    vet_df = pd.DataFrame(vet_visits)
+                    vet_df = vet_df[['date', 'doctor', 'reason', 'medication']]
+                    vet_df.columns = ['Date', 'Doctor', 'Reason', 'Medication']
+                    vet_df['Medication'] = vet_df['Medication'].fillna('None')
+                    
+                    st.dataframe(vet_df, use_container_width=True, hide_index=True)
+                    
+                    # Delete visit option
+                    st.markdown("##### Delete a Visit")
+                    visit_options = [f"{v['date']} - {v['reason']}" for v in vet_visits]
+                    visit_to_delete = st.selectbox("Select visit to delete", [""] + visit_options, key=f"delete_visit_select_{cat}")
+                    
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        if visit_to_delete and st.button("🗑️ Delete", type="secondary"):
+                            idx = visit_options.index(visit_to_delete)
+                            vet_visits.pop(idx)
+                            st.session_state.cat_profiles[cat]['vet_visits'] = vet_visits
+                            save_data()
+                            st.success("Visit deleted!")
+                            st.rerun()
+                else:
+                    st.info("No vet visits recorded yet.")
                 
                 st.markdown("---")
-    
-    # Edit form in expandable section (cleaner layout)
-    if 'editing_cat' in st.session_state:
-        selected_cat = st.session_state.editing_cat
-        
-        st.markdown("---")
-        st.markdown(f"## ✏️ Editing: **{selected_cat}**")
-        
-        profile = st.session_state.cat_profiles[selected_cat]
-        
-        # Create tabs for better organization
-        tab1, tab2 = st.tabs(["📋 Basic Info", "🏥 Vet Visits"])
-        
-        with tab1:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                age = st.text_input("Age", value=profile.get('age', ''), placeholder="e.g., 3 years", key="edit_age")
-                breed = st.text_input("Breed", value=profile.get('breed', ''), placeholder="e.g., Persian", key="edit_breed")
-            
-            with col2:
-                weight = st.text_input("Weight (kg)", value=profile.get('weight', ''), placeholder="e.g., 4.5", key="edit_weight")
-                notes = st.text_area("Additional Notes", value=profile.get('notes', ''), 
-                                   placeholder="Any special notes about your cat...", key="edit_notes", height=100)
-        
-        with tab2:
-            # Display existing vet visits in a nice table
-            vet_visits = profile.get('vet_visits', [])
-            
-            if vet_visits:
-                st.markdown("### 📊 Recorded Visits")
+                st.markdown("### ➕ Add New Vet Visit")
                 
-                # Create DataFrame for better display
-                vet_df = pd.DataFrame(vet_visits)
-                vet_df = vet_df[['date', 'doctor', 'reason', 'medication']]
-                vet_df.columns = ['Date', 'Doctor', 'Reason', 'Medication']
-                vet_df['Medication'] = vet_df['Medication'].fillna('None')
+                col1, col2 = st.columns(2)
                 
-                st.dataframe(vet_df, use_container_width=True, hide_index=True)
-                
-                # Delete visit option
-                st.markdown("##### Delete a Visit")
-                visit_options = [f"{v['date']} - {v['reason']}" for v in vet_visits]
-                visit_to_delete = st.selectbox("Select visit to delete", [""] + visit_options, key="delete_visit_select")
-                
-                col1, col2 = st.columns([1, 3])
                 with col1:
-                    if visit_to_delete and st.button("🗑️ Delete", type="secondary"):
-                        idx = visit_options.index(visit_to_delete)
-                        vet_visits.pop(idx)
-                        st.session_state.cat_profiles[selected_cat]['vet_visits'] = vet_visits
+                    visit_date = st.date_input("Visit Date", key=f"new_visit_date_{cat}")
+                    visit_doctor = st.text_input("Doctor Name", key=f"new_visit_doctor_{cat}", placeholder="Dr. Smith")
+                
+                with col2:
+                    visit_reason = st.text_input("Reason for Visit", key=f"new_visit_reason_{cat}", 
+                                                placeholder="Annual checkup, vaccination, etc.")
+                    visit_medication = st.text_input("Medication Prescribed (optional)", 
+                                                   key=f"new_visit_medication_{cat}", 
+                                                   placeholder="e.g., Antibiotics 5mg")
+                
+                if st.button("➕ Add Vet Visit", type="secondary", use_container_width=True):
+                    if visit_doctor and visit_reason:
+                        new_visit = {
+                            'date': str(visit_date),
+                            'doctor': visit_doctor,
+                            'reason': visit_reason,
+                            'medication': visit_medication if visit_medication else None
+                        }
+                        
+                        if 'vet_visits' not in st.session_state.cat_profiles[cat]:
+                            st.session_state.cat_profiles[cat]['vet_visits'] = []
+                        
+                        st.session_state.cat_profiles[cat]['vet_visits'].append(new_visit)
                         save_data()
-                        st.success("Visit deleted!")
+                        st.success("✅ Vet visit added!")
                         st.rerun()
-            else:
-                st.info("No vet visits recorded yet.")
+                    else:
+                        st.error("Please fill in doctor name and reason.")
             
+            # Save and Cancel buttons at the bottom
             st.markdown("---")
-            st.markdown("### ➕ Add New Vet Visit")
-            
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns([1, 1, 2])
             
             with col1:
-                visit_date = st.date_input("Visit Date", key="new_visit_date")
-                visit_doctor = st.text_input("Doctor Name", key="new_visit_doctor", placeholder="Dr. Smith")
+                if st.button("💾 Save Profile", type="primary", use_container_width=True):
+                    st.session_state.cat_profiles[cat]['age'] = age
+                    st.session_state.cat_profiles[cat]['breed'] = breed
+                    st.session_state.cat_profiles[cat]['weight'] = weight
+                    st.session_state.cat_profiles[cat]['notes'] = notes
+                    save_data()
+                    st.success(f"✅ Profile updated for {cat}!")
+                    time.sleep(0.5)
+                    st.session_state[f'edit_{cat}'] = False
+                    st.rerun()
             
             with col2:
-                visit_reason = st.text_input("Reason for Visit", key="new_visit_reason", 
-                                            placeholder="Annual checkup, vaccination, etc.")
-                visit_medication = st.text_input("Medication Prescribed (optional)", 
-                                               key="new_visit_medication", 
-                                               placeholder="e.g., Antibiotics 5mg")
-            
-            if st.button("➕ Add Vet Visit", type="secondary", use_container_width=True):
-                if visit_doctor and visit_reason:
-                    new_visit = {
-                        'date': str(visit_date),
-                        'doctor': visit_doctor,
-                        'reason': visit_reason,
-                        'medication': visit_medication if visit_medication else None
-                    }
-                    
-                    if 'vet_visits' not in st.session_state.cat_profiles[selected_cat]:
-                        st.session_state.cat_profiles[selected_cat]['vet_visits'] = []
-                    
-                    st.session_state.cat_profiles[selected_cat]['vet_visits'].append(new_visit)
-                    save_data()
-                    st.success("✅ Vet visit added!")
+                if st.button("❌ Cancel", use_container_width=True):
+                    st.session_state[f'edit_{cat}'] = False
                     st.rerun()
-                else:
-                    st.error("Please fill in doctor name and reason.")
+
+def add_health_entry_page():
+    """Page for adding/editing health entries"""
+    st.header("📝 Add Health Entry")
+    
+    if st.session_state.editing_health_entry:
+        # Edit existing entry
+        entry_data = st.session_state.edit_entry_data
+        edit_cat = st.session_state.edit_entry_cat
+        edit_date = st.session_state.edit_entry_date
         
-        # Save and Cancel buttons at the bottom
+        st.subheader(f"✏️ Edit Entry for {edit_cat} - {edit_date}")
+        
+        # Populate form with existing data
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            water_drinks = st.number_input("Water Drinks", min_value=0, max_value=20, value=entry_data.get('water_drinks', 0))
+            food_eats = st.number_input("Food Eats", min_value=0, max_value=10, value=entry_data.get('food_eats', 0))
+            weight = st.number_input("Weight (kg)", min_value=0.0, max_value=20.0, value=entry_data.get('weight', 0.0), step=0.1)
+            litter_box_times = st.number_input("Litter Box Times", min_value=0, max_value=15, value=entry_data.get('litter_box_times', 0))
+        
+        with col2:
+            mood = st.selectbox("Mood", ["Very Poor", "Poor", "Normal", "Good", "Excellent"], 
+                              index=["Very Poor", "Poor", "Normal", "Good", "Excellent"].index(entry_data.get('mood', 'Normal')))
+            general_appearance = st.selectbox("General Appearance", 
+                                            ["Poor", "Fair", "Good", "Excellent"],
+                                            index=["Poor", "Fair", "Good", "Excellent"].index(entry_data.get('general_appearance', 'Good')))
+            litter_quality = st.text_area("Litter Quality Issues", 
+                                        value='\n'.join(entry_data.get('litter_quality', [])) if isinstance(entry_data.get('litter_quality'), list) else entry_data.get('litter_quality', ''),
+                                        help="Note any concerning changes in litter")
+        
+        # Medication info
         st.markdown("---")
+        st.subheader("💊 Medication (Optional)")
+        with st.expander("Add/Edit Medication"):
+            medication_name = st.text_input("Medication Name", value=entry_data.get('medication_name', ''), placeholder="e.g., Amoxicillin")
+            medication_dosage = st.text_input("Dosage", value=entry_data.get('medication_dosage', ''), placeholder="e.g., 50mg")
+            medication_frequency = st.text_input("Frequency", value=entry_data.get('medication_frequency', ''), placeholder="e.g., Twice daily")
+            medication_reason = st.text_input("Reason", value=entry_data.get('medication_reason', ''), placeholder="e.g., Antibiotic treatment")
+        
+        # Notes
+        st.markdown("---")
+        notes = st.text_area("Additional Notes", height=100, value=entry_data.get('notes', ''),
+                           placeholder="Any other observations or concerns...")
+        
+        # Grooming tasks
+        st.markdown("---")
+        st.subheader("🪥 Grooming Tasks")
+        grooming_tasks = {
+            "Brush Fur": st.checkbox("Brush Fur", value=entry_data.get('grooming_tasks', {}).get('Brush Fur', False)),
+            "Trim Nails": st.checkbox("Trim Nails", value=entry_data.get('grooming_tasks', {}).get('Trim Nails', False)),
+            "Clean Ears": st.checkbox("Clean Ears", value=entry_data.get('grooming_tasks', {}).get('Clean Ears', False)),
+            "Dental Care": st.checkbox("Dental Care", value=entry_data.get('grooming_tasks', {}).get('Dental Care', False))
+        }
+        
+        # Action buttons
         col1, col2, col3 = st.columns([1, 1, 2])
         
         with col1:
-            if st.button("💾 Save Profile", type="primary", use_container_width=True):
-                st.session_state.cat_profiles[selected_cat]['age'] = age
-                st.session_state.cat_profiles[selected_cat]['breed'] = breed
-                st.session_state.cat_profiles[selected_cat]['weight'] = weight
-                st.session_state.cat_profiles[selected_cat]['notes'] = notes
+            if st.button("💾 Update Entry", type="primary", use_container_width=True):
+                # Update entry data
+                updated_data = {
+                    'water_drinks': water_drinks,
+                    'food_eats': food_eats,
+                    'weight': weight,
+                    'litter_box_times': litter_box_times,
+                    'mood': mood,
+                    'general_appearance': general_appearance,
+                    'litter_quality': litter_quality.split('\n') if litter_quality else [],
+                    'notes': notes,
+                    'grooming_tasks': {task: checked for task, checked in grooming_tasks.items() if checked}
+                }
+                
+                # Add medication if provided
+                if medication_name:
+                    updated_data.update({
+                        'medication_name': medication_name,
+                        'medication_dosage': medication_dosage,
+                        'medication_frequency': medication_frequency,
+                        'medication_reason': medication_reason
+                    })
+                
+                # Find and replace the entry
+                if edit_cat in st.session_state.health_data:
+                    if str(edit_date) in st.session_state.health_data[edit_cat]:
+                        for i, existing_entry in enumerate(st.session_state.health_data[edit_cat][str(edit_date)]):
+                            if existing_entry.get('timestamp') == entry_data.get('timestamp'):
+                                st.session_state.health_data[edit_cat][str(edit_date)][i] = updated_data
+                                break
+                
                 save_data()
-                st.success(f"✅ Profile updated for {selected_cat}!")
-                time.sleep(0.5)
-                del st.session_state.editing_cat
+                st.success(f"✅ Health entry updated for {edit_cat}!")
+                st.session_state.editing_health_entry = False
+                st.session_state.edit_entry_data = {}
                 st.rerun()
         
         with col2:
             if st.button("❌ Cancel", use_container_width=True):
-                del st.session_state.editing_cat
+                st.session_state.editing_health_entry = False
+                st.session_state.edit_entry_data = {}
                 st.rerun()
-
-def add_health_entry_page():
-    """Page for adding health entries"""
-    st.header("📝 Add Health Entry")
+        
+        return
     
     # Date selection
     entry_date = st.date_input("Entry Date", date.today())
     
     # Cat selection
-    selected_cat = st.selectbox("Select Cat", st.session_state.cats)
+    selected_cat = st.selectbox("Select Cat", st.session_state.cats, key="cat_selector")
     
     # Health entry form
     with st.form("health_entry_form"):
@@ -644,7 +778,7 @@ def add_health_entry_page():
         notes = st.text_area("Additional Notes", height=100, 
                            placeholder="Any other observations or concerns...")
         
-        # Grooming tasks (NOT daily)
+        # Grooming tasks
         st.markdown("---")
         st.subheader("🪥 Grooming Tasks")
         st.write("*Grooming is not a daily task. Check these if performed today.*")
@@ -743,6 +877,42 @@ def view_health_data_page():
             dominant_mood = mood_counts.idxmax() if not mood_counts.empty else "N/A"
             st.metric("Dominant Mood", dominant_mood)
     
+    # Edit existing entries
+    st.subheader("📋 Health Entries")
+    
+    # Create edit buttons for each entry
+    for idx, entry in enumerate(df.itertuples()):
+        with st.expander(f"📅 {entry.date} - {entry.mood if hasattr(entry, 'mood') else 'Unknown'}"):
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                # Display entry details
+                st.write(f"**Water:** {entry.water_drinks if hasattr(entry, 'water_drinks') else 'N/A'}")
+                st.write(f"**Food:** {entry.food_eats if hasattr(entry, 'food_eats') else 'N/A'}")
+                st.write(f"**Weight:** {entry.weight if hasattr(entry, 'weight') else 'N/A'} kg")
+                st.write(f"**Litter Box:** {entry.litter_box_times if hasattr(entry, 'litter_box_times') else 'N/A'} times")
+                st.write(f"**Mood:** {entry.mood if hasattr(entry, 'mood') else 'N/A'}")
+                st.write(f"**Notes:** {entry.notes if hasattr(entry, 'notes') else 'N/A'}")
+            
+            with col2:
+                # Edit button
+                if st.button("✏️ Edit", key=f"edit_entry_{idx}"):
+                    # Find the original entry data
+                    original_entry = None
+                    if selected_cat in st.session_state.health_data:
+                        if str(entry.date.date()) in st.session_state.health_data[selected_cat]:
+                            for health_entry in st.session_state.health_data[selected_cat][str(entry.date.date())]:
+                                if health_entry.get('timestamp') == entry.timestamp:
+                                    original_entry = health_entry
+                                    break
+                    
+                    if original_entry:
+                        st.session_state.editing_health_entry = True
+                        st.session_state.edit_entry_data = original_entry
+                        st.session_state.edit_entry_cat = selected_cat
+                        st.session_state.edit_entry_date = entry.date.date()
+                        st.rerun()
+    
     # Plot trends
     st.subheader("📊 Health Trends")
     
@@ -780,72 +950,22 @@ def view_health_data_page():
         
         fig.update_layout(height=600, showlegend=True)
         st.plotly_chart(fig, use_container_width=True)
-    
-    # Detailed table view
-    st.subheader("📋 Detailed Entries")
-    
-    # Display entries in a nice table
-    display_df = df.copy()
-    
-    # Convert lists to strings for display
-    if 'litter_quality' in display_df.columns:
-        display_df['litter_quality'] = display_df['litter_quality'].apply(
-            lambda x: ', '.join(x) if isinstance(x, list) else str(x)
-        )
-    
-    # Select important columns for display
-    important_cols = ['date', 'water_drinks', 'food_eats', 'litter_box_times', 'mood', 'notes']
-    available_cols = [col for col in important_cols if col in display_df.columns]
-    
-    if available_cols:
-        st.dataframe(display_df[available_cols], use_container_width=True, hide_index=True)
-    else:
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 def task_management_page():
-    """Page for managing tasks"""
+    """Page for managing tasks (edit only)"""
     st.header("📋 Task Management")
     
-    # Task editing section
-    st.subheader("✏️ Manage Tasks")
+    st.subheader("✏️ Edit Existing Tasks")
     
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        st.session_state.new_task_name = st.text_input("New Task Name", 
-                                                     placeholder="e.g., Clean toys",
-                                                     key="new_task_input")
-    
-    with col2:
-        st.session_state.new_task_frequency = st.selectbox(
-            "Frequency", 
-            ["daily", "weekly", "monthly"], 
-            key="new_task_frequency"
-        )
-    
-    with col3:
-        if st.button("➕ Add Task", type="primary", use_container_width=True):
-            if st.session_state.new_task_name.strip():
-                task_name = st.session_state.new_task_name.strip()
-                frequency = st.session_state.new_task_frequency
-                
-                if task_name not in st.session_state.tasks[frequency]:
-                    st.session_state.tasks[frequency].append(task_name)
-                    st.session_state.task_schedules[frequency][task_name] = 1
-                    save_data()
-                    st.success(f"✅ Added '{task_name}' to {frequency} tasks!")
-                    st.rerun()
-                else:
-                    st.warning(f"'{task_name}' already exists in {frequency} tasks!")
-            else:
-                st.error("Please enter a task name!")
-    
-    # Display tasks by frequency
     frequencies = ['daily', 'weekly', 'monthly']
     freq_names = ['📅 Daily', '🗓️ Weekly', '📆 Monthly']
     
     for freq, freq_name in zip(frequencies, freq_names):
         st.markdown(f"### {freq_name}")
+        
+        if not st.session_state.tasks[freq]:
+            st.info(f"No {freq} tasks to manage.")
+            continue
         
         col1, col2 = st.columns([4, 1])
         
@@ -915,8 +1035,8 @@ def task_management_page():
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 def ai_chat_page():
-    """AI chat page using Thaura"""
-    st.header("💬 AI Chat - Thaura")
+    """AI chat page using Hugging Face"""
+    st.header("💬 AI Chat - Hugging Face")
     st.write("Ask me anything about cat care, health, or behavior!")
     
     # Display chat messages
@@ -936,7 +1056,7 @@ def ai_chat_page():
             'profiles': st.session_state.cat_profiles
         }
         
-        ai_response = call_thaura_ai(prompt, cat_data)
+        ai_response = call_huggingface_ai(prompt, cat_data)
         
         # Add AI response
         st.session_state.chat_messages.append({"role": "assistant", "content": ai_response})
@@ -945,7 +1065,7 @@ def ai_chat_page():
         st.rerun()
 
 def dashboard_page():
-    """Dashboard page with cat health preview only"""
+    """Dashboard page with comprehensive cat health summaries"""
     st.header("🎯 Dashboard")
     
     # Quick stats for all cats
@@ -981,76 +1101,17 @@ def dashboard_page():
                          and st.session_state.health_data[cat])
         st.metric("Active Cats", active_cats)
     
-    # Cat health preview
-    st.subheader("🐱 Cat Health Preview")
+    # Comprehensive cat health summaries
+    st.subheader("🐱 Cat Health Summaries")
     
     # Tabs for each cat
     cat_tabs = st.tabs(st.session_state.cats)
     
     for i, cat in enumerate(st.session_state.cats):
         with cat_tabs[i]:
-            # Get cat analysis
-            analysis = analyze_cat_health(cat)
-            
-            if analysis.get('status') == 'no_data':
-                st.info(f"No health data available for {cat}.")
-                st.write("📝 Go to 'Add Health Entry' to start tracking!")
-                continue
-            
-            # Cat profile summary
-            profile = analysis.get('profile', {})
-            with st.expander("📋 Profile", expanded=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Age:** {profile.get('age', 'Not set')}")
-                    st.write(f"**Breed:** {profile.get('breed', 'Not set')}")
-                
-                with col2:
-                    st.write(f"**Weight:** {profile.get('weight', 'Not set')}")
-                    st.write(f"**Vet Visits:** {len(profile.get('vet_visits', []))}")
-            
-            # Health stats
-            with st.expander("📈 Health Stats"):
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Water/Day", f"{analysis['water_avg']:.1f}")
-                
-                with col2:
-                    st.metric("Food/Day", f"{analysis['food_avg']:.1f}")
-                
-                with col3:
-                    st.metric("Litter/Day", f"{analysis['litter_usage']:.1f}")
-            
-            # Mood indicator
-            mood_color = {
-                'improving': '✅',
-                'stable': '🟡',
-                'declining': '⚠️'
-            }.get(analysis['mood_trend'], '🟡')
-            
-            st.write(f"{mood_color} **Mood Trend:** {analysis['mood_trend'].title()}")
-            
-            # Recent concerns
-            if analysis['concerns']:
-                st.warning(f"⚠️ **Concerns:** {', '.join(analysis['concerns'][:2])}")
-            else:
-                st.success("✅ No major concerns detected")
-            
-            # Quick actions
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button(f"📝 Add Entry", key=f"add_entry_{cat}", use_container_width=True):
-                    st.session_state.selected_cat = cat
-                    st.switch_page("pages/1_Add_Health_Entry.py")
-            
-            with col2:
-                if st.button(f"📊 View Details", key=f"view_details_{cat}", use_container_width=True):
-                    st.session_state.selected_cat = cat
-                    st.switch_page("pages/2_View_Health_Data.py")
+            # Display cat summary
+            summary = generate_cat_summary(cat)
+            st.markdown(summary, unsafe_allow_html=False)
 
 def data_management_page():
     """Page for managing data - delete, export, import"""
@@ -1307,6 +1368,14 @@ def main():
     else:
         st.sidebar.warning("⚠️ Security: Disabled")
         st.sidebar.caption("Upload auth_module.py")
+    
+    # Show AI status in sidebar
+    if HF_API_KEY:
+        st.sidebar.success("🤖 AI: Hugging Face Enabled")
+        st.sidebar.caption("Powered by Meta-Llama-3-8B-Instruct")
+    else:
+        st.sidebar.info("🤖 AI: Basic Mode")
+        st.sidebar.caption("Add HF_API_KEY for advanced AI")
     
     check_reminders()
     

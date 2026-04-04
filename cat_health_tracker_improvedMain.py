@@ -186,17 +186,20 @@ def load_data():
             } for cat in st.session_state.cats
         }
 
-# Health entry functions
-def add_health_entry(cat_name: str, date: date, entry_data: Dict):
-    """Add a health entry for a specific cat"""
+# Health entry functions - NEW IMPROVED SYSTEM
+def add_health_entry(cat_name: str, entry_data: Dict):
+    """Add a health entry for a specific cat with timestamp"""
     if cat_name not in st.session_state.health_data:
         st.session_state.health_data[cat_name] = {}
     
-    if str(date) not in st.session_state.health_data[cat_name]:
-        st.session_state.health_data[cat_name][str(date)] = []
+    # Use current timestamp as unique key
+    timestamp = datetime.now().isoformat()
     
-    entry_data['timestamp'] = datetime.now().isoformat()
-    st.session_state.health_data[cat_name][str(date)].append(entry_data)
+    if timestamp not in st.session_state.health_data[cat_name]:
+        st.session_state.health_data[cat_name][timestamp] = []
+    
+    entry_data['timestamp'] = timestamp
+    st.session_state.health_data[cat_name][timestamp].append(entry_data)
     st.session_state.last_entries[cat_name] = datetime.now()
     save_data()
 
@@ -204,13 +207,29 @@ def get_health_entries(cat_name: str, start_date: date, end_date: date) -> List[
     """Get health entries for a cat within date range"""
     entries = []
     if cat_name in st.session_state.health_data:
-        for date_str, date_entries in st.session_state.health_data[cat_name].items():
-            entry_date = datetime.fromisoformat(date_str).date()
+        for timestamp, date_entries in st.session_state.health_data[cat_name].items():
+            entry_date = datetime.fromisoformat(timestamp).date()
             if start_date <= entry_date <= end_date:
                 for entry in date_entries:
-                    entry['date'] = date_str
+                    entry['timestamp'] = timestamp
                     entries.append(entry)
     return entries
+
+def update_health_entry(cat_name: str, timestamp: str, entry_index: int, updated_data: Dict):
+    """Update a specific health entry"""
+    if cat_name in st.session_state.health_data and timestamp in st.session_state.health_data[cat_name]:
+        if entry_index < len(st.session_state.health_data[cat_name][timestamp]):
+            st.session_state.health_data[cat_name][timestamp][entry_index].update(updated_data)
+            save_data()
+
+def delete_health_entry(cat_name: str, timestamp: str, entry_index: int):
+    """Delete a specific health entry"""
+    if cat_name in st.session_state.health_data and timestamp in st.session_state.health_data[cat_name]:
+        if entry_index < len(st.session_state.health_data[cat_name][timestamp]):
+            st.session_state.health_data[cat_name][timestamp].pop(entry_index)
+            if not st.session_state.health_data[cat_name][timestamp]:
+                del st.session_state.health_data[cat_name][timestamp]
+            save_data()
 
 # Task management functions
 def add_task_completion(task_name: str, cat_name: str = None, notes: str = ""):
@@ -369,7 +388,7 @@ def analyze_cat_health(cat_name: str) -> Dict:
             for quality in qualities:
                 if quality and ('blood' in quality.lower() or 'diarrhea' in quality.lower() or 'abnormal' in quality.lower()):
                     analysis['litter_quality_issues'].append({
-                        'date': entry.get('date'),
+                        'date': entry.get('timestamp', '').split('T')[0],
                         'issue': quality
                     })
     
@@ -384,11 +403,7 @@ def analyze_cat_health(cat_name: str) -> Dict:
     # Check for concerns with profile context
     if analysis['water_avg'] < 3:
         analysis['concerns'].append('Low water intake detected')
-        weight = profile.get('weight', '')
-        if weight:
-            analysis['recommendations'].append(f"Cat should drink ~{float(weight) * 50 if weight.replace('.', '').isdigit() else 150}ml of water daily. Consider adding water fountains or wet food.")
-        else:
-            analysis['recommendations'].append('Consider adding more water sources or wet food')
+        analysis['recommendations'].append('Consider adding more water sources or wet food')
     
     if analysis['food_avg'] < 2:
         analysis['concerns'].append('Low food intake detected')
@@ -396,7 +411,7 @@ def analyze_cat_health(cat_name: str) -> Dict:
     
     if analysis['litter_usage'] > 5:
         analysis['concerns'].append('Frequent litter box usage')
-        analysis['recommendations'].append('Monitor for urinary tract issues or stress. Check recent vet visits.')
+        analysis['recommendations'].append('Monitor for urinary tract issues or stress')
     
     if analysis['litter_quality_issues']:
         analysis['concerns'].append(f'Litter quality issues detected ({len(analysis["litter_quality_issues"])} instances)')
@@ -430,14 +445,12 @@ def generate_cat_summary(cat_name: str) -> str:
     summary = f"## {cat_name}'s Health Summary\n\n"
     
     # Profile info
-    if profile.get('age') or profile.get('breed') or profile.get('weight'):
+    if profile.get('age') or profile.get('breed'):
         summary += "**Profile:**\n"
         if profile.get('age'):
             summary += f"- Age: {profile['age']}\n"
         if profile.get('breed'):
             summary += f"- Breed: {profile['breed']}\n"
-        if profile.get('weight'):
-            summary += f"- Weight: {profile['weight']} kg\n"
         summary += "\n"
     
     summary += f"**Tracking Period:** Past 7 days\n"
@@ -487,7 +500,7 @@ def generate_cat_summary(cat_name: str) -> str:
 
 # Page Functions
 def cat_profiles_page():
-    """Page for managing cat profiles with card layout"""
+    """Page for managing cat profiles with improved card layout"""
     st.header("🐱 Cat Profiles")
     
     # Display cat profiles in card layout
@@ -500,17 +513,17 @@ def cat_profiles_page():
                 <h3 style='color: #2c3e50; margin-bottom: 15px;'>🐱 {cat}</h3>
                 
                 <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;'>
-                    <div>
-                        <strong>Age:</strong> {profile.get('age', 'Not set')}
+                    div>
+                        strong>Age:</<strong> {profile.get('age', 'Not set')}
                     </div>
                     div>
-                        <strong>Breed:</strong> {profile.get('breed', 'Not set')}
-                    </div>
-                    <div>
-                        <strong>Weight:</strong> {profile.get('weight', 'Not set')} kg
+                        strong>Breed:</<strong> {profile.get('breed', 'Not set')}
                     </div>
                     div>
                         <strong>Vet Visits:</strong> {len(profile.get('vet_visits', []))}
+                    </div>
+                    <div>
+                        <strong>Weight:</strong> {profile.get('weight', 'Not set')} kg
                     </div>
                 </div>
                 
@@ -542,7 +555,6 @@ def cat_profiles_page():
                     breed = st.text_input("Breed", value=profile.get('breed', ''), key=f"edit_breed_{cat}")
                 
                 with col2:
-                    weight = st.text_input("Weight (kg)", value=profile.get('weight', ''), key=f"edit_weight_{cat}")
                     notes = st.text_area("Additional Notes", value=profile.get('notes', ''), 
                                        key=f"edit_notes_{cat}", height=100)
             
@@ -588,163 +600,244 @@ def cat_profiles_page():
                     visit_doctor = st.text_input("Doctor Name", key=f"new_visit_doctor_{cat}", placeholder="Dr. Smith")
                 
                 with col2:
-                    visit_reason = st.text_input("Reason for Visit", key=f"new_visit_reason_{cat}", 
-                                                placeholder="Annual checkup, vaccination, etc.")
-                    visit_medication = st.text_input("Medication Prescribed (optional)", 
-                                                   key=f"new_visit_medication_{cat}", 
-                                                   placeholder="e.g., Antibiotics 5mg")
+                    visit_reason = st.text_input("Reason for Visit", key=f"new_visit_reason_{cat}", placeholder="Annual checkup")
+                    visit_medication = st.text_input("Medication Prescribed", key=f"new_visit_medication_{cat}", placeholder="None")
                 
-                if st.button("➕ Add Vet Visit", type="secondary", use_container_width=True):
-                    if visit_doctor and visit_reason:
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if st.button("💾 Save Visit", type="primary"):
                         new_visit = {
                             'date': str(visit_date),
                             'doctor': visit_doctor,
                             'reason': visit_reason,
-                            'medication': visit_medication if visit_medication else None
+                            'medication': visit_medication
                         }
-                        
-                        if 'vet_visits' not in st.session_state.cat_profiles[cat]:
-                            st.session_state.cat_profiles[cat]['vet_visits'] = []
-                        
                         st.session_state.cat_profiles[cat]['vet_visits'].append(new_visit)
                         save_data()
                         st.success("✅ Vet visit added!")
                         st.rerun()
-                    else:
-                        st.error("Please fill in doctor name and reason.")
+                with col2:
+                    if st.button("❌ Cancel", type="secondary"):
+                        st.session_state[f'edit_{cat}'] = False
+                        st.rerun()
+        
+        # Edit profile form
+        if st.session_state.get(f'edit_basic_{cat}', False):
+            st.markdown(f"## ✏️ Edit Basic Info: **{cat}**")
             
-            # Save and Cancel buttons at the bottom
-            st.markdown("---")
-            col1, col2, col3 = st.columns([1, 1, 2])
+            profile = st.session_state.cat_profiles[cat]
+            
+            col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("💾 Save Profile", type="primary", use_container_width=True):
-                    st.session_state.cat_profiles[cat]['age'] = age
-                    st.session_state.cat_profiles[cat]['breed'] = breed
-                    st.session_state.cat_profiles[cat]['weight'] = weight
-                    st.session_state.cat_profiles[cat]['notes'] = notes
-                    save_data()
-                    st.success(f"✅ Profile updated for {cat}!")
-                    time.sleep(0.5)
-                    st.session_state[f'edit_{cat}'] = False
-                    st.rerun()
+                age = st.text_input("Age", value=profile.get('age', ''), key=f"edit_age_basic_{cat}")
+                breed = st.text_input("Breed", value=profile.get('breed', ''), key=f"edit_breed_basic_{cat}")
             
             with col2:
-                if st.button("❌ Cancel", use_container_width=True):
-                    st.session_state[f'edit_{cat}'] = False
+                weight = st.text_input("Weight (kg)", value=profile.get('weight', ''), key=f"edit_weight_basic_{cat}")
+                notes = st.text_area("Additional Notes", value=profile.get('notes', ''), 
+                                   key=f"edit_notes_basic_{cat}", height=100)
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if st.button("💾 Save Changes", type="primary"):
+                    st.session_state.cat_profiles[cat].update({
+                        'age': age, 'breed': breed, 'weight': weight, 'notes': notes
+                    })
+                    save_data()
+                    st.success("✅ Profile updated!")
+                    st.session_state[f'edit_basic_{cat}'] = False
                     st.rerun()
+            with col2:
+                if st.button("❌ Cancel", type="secondary"):
+                    st.session_state[f'edit_basic_{cat}'] = False
+                    st.rerun()
+        
+        # Add vet visit button
+        if st.button(f"🏥 Add Visit to {cat}", key=f"add_visit_{cat}"):
+            st.session_state[f'edit_{cat}'] = True
+            st.rerun()
+        
+        # Edit profile button
+        if st.button(f"✏️ Edit {cat}'s Profile", key=f"edit_profile_{cat}"):
+            st.session_state[f'edit_basic_{cat}'] = True
+            st.rerun()
 
 def add_health_entry_page():
-    """Page for adding/editing health entries"""
+    """Page for adding health entries with improved system"""
     st.header("📝 Add Health Entry")
     
-    if st.session_state.editing_health_entry:
-        # Edit existing entry
-        entry_data = st.session_state.edit_entry_data
+    # Check if we're editing an existing entry
+    if st.session_state.editing_health_entry and st.session_state.edit_entry_data:
+        st.subheader("✏️ Edit Health Entry")
+        
         edit_cat = st.session_state.edit_entry_cat
-        edit_date = st.session_state.edit_entry_date
+        edit_timestamp = st.session_state.edit_entry_data.get('timestamp', '')
+        edit_entry_index = st.session_state.edit_entry_data.get('index', 0)
         
-        st.subheader(f"✏️ Edit Entry for {edit_cat} - {edit_date}")
+        # Get the original entry data
+        original_entry = None
+        if edit_cat in st.session_state.health_data:
+            if edit_timestamp in st.session_state.health_data[edit_cat]:
+                if edit_entry_index < len(st.session_state.health_data[edit_cat][edit_timestamp]):
+                    original_entry = st.session_state.health_data[edit_cat][edit_timestamp][edit_entry_index]
         
-        # Populate form with existing data
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            water_drinks = st.number_input("Water Drinks", min_value=0, max_value=20, value=entry_data.get('water_drinks', 0))
-            food_eats = st.number_input("Food Eats", min_value=0, max_value=10, value=entry_data.get('food_eats', 0))
-            weight = st.number_input("Weight (kg)", min_value=0.0, max_value=20.0, value=entry_data.get('weight', 0.0), step=0.1)
-            litter_box_times = st.number_input("Litter Box Times", min_value=0, max_value=15, value=entry_data.get('litter_box_times', 0))
-        
-        with col2:
-            mood = st.selectbox("Mood", ["Very Poor", "Poor", "Normal", "Good", "Excellent"], 
-                              index=["Very Poor", "Poor", "Normal", "Good", "Excellent"].index(entry_data.get('mood', 'Normal')))
-            general_appearance = st.selectbox("General Appearance", 
-                                            ["Poor", "Fair", "Good", "Excellent"],
-                                            index=["Poor", "Fair", "Good", "Excellent"].index(entry_data.get('general_appearance', 'Good')))
-            litter_quality = st.text_area("Litter Quality Issues", 
-                                        value='\n'.join(entry_data.get('litter_quality', [])) if isinstance(entry_data.get('litter_quality'), list) else entry_data.get('litter_quality', ''),
-                                        help="Note any concerning changes in litter")
-        
-        # Medication info
-        st.markdown("---")
-        st.subheader("💊 Medication (Optional)")
-        with st.expander("Add/Edit Medication"):
-            medication_name = st.text_input("Medication Name", value=entry_data.get('medication_name', ''), placeholder="e.g., Amoxicillin")
-            medication_dosage = st.text_input("Dosage", value=entry_data.get('medication_dosage', ''), placeholder="e.g., 50mg")
-            medication_frequency = st.text_input("Frequency", value=entry_data.get('medication_frequency', ''), placeholder="e.g., Twice daily")
-            medication_reason = st.text_input("Reason", value=entry_data.get('medication_reason', ''), placeholder="e.g., Antibiotic treatment")
-        
-        # Notes
-        st.markdown("---")
-        notes = st.text_area("Additional Notes", height=100, value=entry_data.get('notes', ''),
-                           placeholder="Any other observations or concerns...")
-        
-        # Grooming tasks
-        st.markdown("---")
-        st.subheader("🪥 Grooming Tasks")
-        grooming_tasks = {
-            "Brush Fur": st.checkbox("Brush Fur", value=entry_data.get('grooming_tasks', {}).get('Brush Fur', False)),
-            "Trim Nails": st.checkbox("Trim Nails", value=entry_data.get('grooming_tasks', {}).get('Trim Nails', False)),
-            "Clean Ears": st.checkbox("Clean Ears", value=entry_data.get('grooming_tasks', {}).get('Clean Ears', False)),
-            "Dental Care": st.checkbox("Dental Care", value=entry_data.get('grooming_tasks', {}).get('Dental Care', False))
-        }
-        
-        # Action buttons
-        col1, col2, col3 = st.columns([1, 1, 2])
-        
-        with col1:
-            if st.button("💾 Update Entry", type="primary", use_container_width=True):
-                # Update entry data
-                updated_data = {
-                    'water_drinks': water_drinks,
-                    'food_eats': food_eats,
-                    'weight': weight,
-                    'litter_box_times': litter_box_times,
-                    'mood': mood,
-                    'general_appearance': general_appearance,
-                    'litter_quality': litter_quality.split('\n') if litter_quality else [],
-                    'notes': notes,
-                    'grooming_tasks': {task: checked for task, checked in grooming_tasks.items() if checked}
+        if original_entry:
+            with st.form("edit_health_entry_form"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Basic health metrics
+                    water_drinks = st.number_input("Water Drinks", min_value=0, max_value=20, value=original_entry.get('water_drinks', 0))
+                    food_eats = st.number_input("Food Eats", min_value=0, max_value=10, value=original_entry.get('food_eats', 0))
+                    litter_box_times = st.number_input("Litter Box Times", min_value=0, max_value=15, value=original_entry.get('litter_box_times', 0))
+                
+                with col2:
+                    # Mood and appearance
+                    mood = st.selectbox("Mood", ["Very Poor", "Poor", "Normal", "Good", "Excellent"], 
+                                      index=["Very Poor", "Poor", "Normal", "Good", "Excellent"].index(original_entry.get('mood', 'Normal')))
+                    general_appearance = st.selectbox("General Appearance", 
+                                                    ["Poor", "Fair", "Good", "Excellent"],
+                                                    index=["Poor", "Fair", "Good", "Excellent"].index(original_entry.get('general_appearance', 'Good')))
+                    litter_quality = st.text_area("Litter Quality Issues", 
+                                                value='\n'.join(original_entry.get('litter_quality', [])),
+                                                help="Note any concerning changes in litter")
+                
+                # Medication info
+                st.markdown("---")
+                st.subheader("💊 Medication (Optional)")
+                with st.expander("Add/Edit Medication"):
+                    medication_name = st.text_input("Medication Name", value=original_entry.get('medication_name', ''), placeholder="e.g., Amoxicillin")
+                    medication_dosage = st.text_input("Dosage", value=original_entry.get('medication_dosage', ''), placeholder="e.g., 50mg")
+                    medication_frequency = st.text_input("Frequency", value=original_entry.get('medication_frequency', ''), placeholder="e.g., Twice daily")
+                    medication_reason = st.text_input("Reason", value=original_entry.get('medication_reason', ''), placeholder="e.g., Antibiotic treatment")
+                
+                # Notes
+                st.markdown("---")
+                notes = st.text_area("Additional Notes", height=100, 
+                                   value=original_entry.get('notes', ''),
+                                   placeholder="Any other observations or concerns...")
+                
+                # Grooming tasks
+                st.markdown("---")
+                st.subheader("🪥 Grooming Tasks")
+                st.write("*Grooming is not a daily task. Check these if performed today.*")
+                
+                grooming_tasks = {
+                    "Brush Fur": st.checkbox("Brush Fur", value=original_entry.get('grooming_tasks', {}).get('Brush Fur', False)),
+                    "Trim Nails": st.checkbox("Trim Nails", value=original_entry.get('grooming_tasks', {}).get('Trim Nails', False)),
+                    "Clean Ears": st.checkbox("Clean Ears", value=original_entry.get('grooming_tasks', {}).get('Clean Ears', False)),
+                    "Dental Care": st.checkbox("Dental Care", value=original_entry.get('grooming_tasks', {}).get('Dental Care', False))
                 }
                 
-                # Add medication if provided
-                if medication_name:
-                    updated_data.update({
-                        'medication_name': medication_name,
-                        'medication_dosage': medication_dosage,
-                        'medication_frequency': medication_frequency,
-                        'medication_reason': medication_reason
-                    })
+                # Submit button
+                submitted = st.form_submit_button("💾 Update Health Entry")
                 
-                # Find and replace the entry
-                if edit_cat in st.session_state.health_data:
-                    if str(edit_date) in st.session_state.health_data[edit_cat]:
-                        for i, existing_entry in enumerate(st.session_state.health_data[edit_cat][str(edit_date)]):
-                            if existing_entry.get('timestamp') == entry_data.get('timestamp'):
-                                st.session_state.health_data[edit_cat][str(edit_date)][i] = updated_data
-                                break
-                
-                save_data()
-                st.success(f"✅ Health entry updated for {edit_cat}!")
-                st.session_state.editing_health_entry = False
-                st.session_state.edit_entry_data = {}
-                st.rerun()
+                if submitted:
+                    # Prepare entry data
+                    entry_data = {
+                        'water_drinks': water_drinks,
+                        'food_eats': food_eats,
+                        'litter_box_times': litter_box_times,
+                        'mood': mood,
+                        'general_appearance': general_appearance,
+                        'litter_quality': litter_quality.split('\n') if litter_quality else [],
+                        'notes': notes,
+                        'grooming_tasks': {task: checked for task, checked in grooming_tasks.items() if checked}
+                    }
+                    
+                    # Add medication if provided
+                    if medication_name:
+                        entry_data.update({
+                            'medication_name': medication_name,
+                            'medication_dosage': medication_dosage,
+                            'medication_frequency': medication_frequency,
+                            'medication_reason': medication_reason
+                        })
+                    
+                    # Update the entry
+                    update_health_entry(edit_cat, edit_timestamp, edit_entry_index, entry_data)
+                    st.success(f"✅ Health entry updated for {edit_cat}!")
+                    st.session_state.editing_health_entry = False
+                    st.session_state.edit_entry_data = {}
+                    st.rerun()
         
-        with col2:
-            if st.button("❌ Cancel", use_container_width=True):
+        with st.columns([1, 3])[0]:
+            if st.button("❌ Cancel Edit", use_container_width=True):
                 st.session_state.editing_health_entry = False
                 st.session_state.edit_entry_data = {}
                 st.rerun()
         
         return
     
-    # Date selection
-    entry_date = st.date_input("Entry Date", date.today())
+    # NEW ENTRY FORM
+    st.subheader("🆕 Add New Health Entry")
     
     # Cat selection
     selected_cat = st.selectbox("Select Cat", st.session_state.cats, key="cat_selector")
     
-    # Health entry form
+    # Quick entry mode vs detailed entry mode
+    entry_mode = st.radio("Entry Mode", ["🚀 Quick Entry", "📋 Detailed Entry"])
+    
+    if entry_mode == "🚀 Quick Entry":
+        # Quick entry for common tasks
+        st.markdown("### Quick Actions")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("💧 Water Drank", help="Cat drank water"):
+                entry_data = {
+                    'water_drinks': 1,
+                    'food_eats': 0,
+                    'litter_box_times': 0,
+                    'mood': 'Good',
+                    'general_appearance': 'Good',
+                    'litter_quality': [],
+                    'notes': 'Quick entry: Water drank',
+                    'grooming_tasks': {}
+                }
+                add_health_entry(selected_cat, entry_data)
+                st.success(f"✅ Water entry added for {selected_cat}!")
+                st.rerun()
+        
+        with col2:
+            if st.button("🍽️ Food Eaten", help="Cat ate food"):
+                entry_data = {
+                    'water_drinks': 0,
+                    'food_eats': 1,
+                    'litter_box_times': 0,
+                    'mood': 'Good',
+                    'general_appearance': 'Good',
+                    'litter_quality': [],
+                    'notes': 'Quick entry: Food eaten',
+                    'grooming_tasks': {}
+                }
+                add_health_entry(selected_cat, entry_data)
+                st.success(f"✅ Food entry added for {selected_cat}!")
+                st.rerun()
+        
+        with col3:
+            if st.button("🚽 Litter Box Used", help="Cat used litter box"):
+                entry_data = {
+                    'water_drinks': 0,
+                    'food_eats': 0,
+                    'litter_box_times': 1,
+                    'mood': 'Good',
+                    'general_appearance': 'Good',
+                    'litter_quality': [],
+                    'notes': 'Quick entry: Litter box used',
+                    'grooming_tasks': {}
+                }
+                add_health_entry(selected_cat, entry_data)
+                st.success(f"✅ Litter entry added for {selected_cat}!")
+                st.rerun()
+        
+        st.markdown("---")
+    
+    # Detailed entry form
+    st.markdown("### 📋 Detailed Health Entry")
+    
     with st.form("health_entry_form"):
         col1, col2 = st.columns(2)
         
@@ -752,7 +845,6 @@ def add_health_entry_page():
             # Basic health metrics
             water_drinks = st.number_input("Water Drinks", min_value=0, max_value=20, value=0)
             food_eats = st.number_input("Food Eats", min_value=0, max_value=10, value=0)
-            weight = st.number_input("Weight (kg)", min_value=0.0, max_value=20.0, value=0.0, step=0.1)
             litter_box_times = st.number_input("Litter Box Times", min_value=0, max_value=15, value=0)
         
         with col2:
@@ -798,7 +890,6 @@ def add_health_entry_page():
             entry_data = {
                 'water_drinks': water_drinks,
                 'food_eats': food_eats,
-                'weight': weight,
                 'litter_box_times': litter_box_times,
                 'mood': mood,
                 'general_appearance': general_appearance,
@@ -817,12 +908,12 @@ def add_health_entry_page():
                 })
             
             # Add the entry
-            add_health_entry(selected_cat, entry_date, entry_data)
+            add_health_entry(selected_cat, entry_data)
             st.success(f"✅ Health entry saved for {selected_cat}!")
             st.rerun()
 
 def view_health_data_page():
-    """Page for viewing health data"""
+    """Page for viewing health data with editing capabilities"""
     st.header("📊 View Health Data")
     
     # Cat selection and date range
@@ -850,8 +941,9 @@ def view_health_data_page():
     
     # Convert to DataFrame for better visualization
     df = pd.DataFrame(entries)
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.sort_values('date')
+    df['date'] = pd.to_datetime(df['timestamp']).dt.date
+    df['time'] = pd.to_datetime(df['timestamp']).dt.time
+    df = df.sort_values('timestamp', ascending=False)
     
     # Display summary statistics
     st.subheader(f"📈 {selected_cat}'s Health Summary")
@@ -880,37 +972,58 @@ def view_health_data_page():
     # Edit existing entries
     st.subheader("📋 Health Entries")
     
-    # Create edit buttons for each entry
-    for idx, entry in enumerate(df.itertuples()):
-        with st.expander(f"📅 {entry.date} - {entry.mood if hasattr(entry, 'mood') else 'Unknown'}"):
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                # Display entry details
-                st.write(f"**Water:** {entry.water_drinks if hasattr(entry, 'water_drinks') else 'N/A'}")
-                st.write(f"**Food:** {entry.food_eats if hasattr(entry, 'food_eats') else 'N/A'}")
-                st.write(f"**Weight:** {entry.weight if hasattr(entry, 'weight') else 'N/A'} kg")
-                st.write(f"**Litter Box:** {entry.litter_box_times if hasattr(entry, 'litter_box_times') else 'N/A'} times")
-                st.write(f"**Mood:** {entry.mood if hasattr(entry, 'mood') else 'N/A'}")
-                st.write(f"**Notes:** {entry.notes if hasattr(entry, 'notes') else 'N/A'}")
-            
-            with col2:
-                # Edit button
-                if st.button("✏️ Edit", key=f"edit_entry_{idx}"):
-                    # Find the original entry data
-                    original_entry = None
-                    if selected_cat in st.session_state.health_data:
-                        if str(entry.date.date()) in st.session_state.health_data[selected_cat]:
-                            for health_entry in st.session_state.health_data[selected_cat][str(entry.date.date())]:
-                                if health_entry.get('timestamp') == entry.timestamp:
-                                    original_entry = health_entry
-                                    break
+    # Group entries by date
+    df['date_only'] = df['timestamp'].str.split('T').str[0]
+    grouped_entries = df.groupby('date_only')
+    
+    for date_str, date_group in grouped_entries:
+        with st.expander(f"📅 {date_str} ({len(date_group)} entries)"):
+            for idx, entry in date_group.iterrows():
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    # Display entry details
+                    st.write(f"**Time:** {entry['time']}")
+                    st.write(f"**Water:** {entry.get('water_drinks', 'N/A')}")
+                    st.write(f"**Food:** {entry.get('food_eats', 'N/A')}")
+                    st.write(f"**Litter Box:** {entry.get('litter_box_times', 'N/A')} times")
+                    st.write(f"**Mood:** {entry.get('mood', 'N/A')}")
+                    st.write(f"**Appearance:** {entry.get('general_appearance', 'N/A')}")
                     
-                    if original_entry:
+                    if entry.get('litter_quality'):
+                        qualities = '\n'.join(entry['litter_quality'])
+                        if qualities.strip():
+                            st.write(f"**Litter Issues:** {qualities}")
+                    
+                    if entry.get('notes'):
+                        st.write(f"**Notes:** {entry['notes']}")
+                    
+                    if entry.get('medication_name'):
+                        st.write(f"**Medication:** {entry['medication_name']} ({entry.get('medication_dosage', 'N/A')})")
+                        st.write(f"**Frequency:** {entry.get('medication_frequency', 'N/A')}")
+                        st.write(f"**Reason:** {entry.get('medication_reason', 'N/A')}")
+                    
+                    # Grooming tasks
+                    grooming_done = [task for task, done in entry.get('grooming_tasks', {}).items() if done]
+                    if grooming_done:
+                        st.write(f"**Grooming:** {', '.join(grooming_done)}")
+                
+                with col2:
+                    # Edit and delete buttons
+                    if st.button("✏️ Edit", key=f"edit_entry_{idx}"):
+                        # Prepare edit data
+                        edit_data = {
+                            'timestamp': entry['timestamp'],
+                            'index': idx,
+                            'cat': selected_cat
+                        }
                         st.session_state.editing_health_entry = True
-                        st.session_state.edit_entry_data = original_entry
-                        st.session_state.edit_entry_cat = selected_cat
-                        st.session_state.edit_entry_date = entry.date.date()
+                        st.session_state.edit_entry_data = edit_data
+                        st.rerun()
+                    
+                    if st.button("🗑️ Delete", key=f"delete_entry_{idx}"):
+                        delete_health_entry(selected_cat, entry['timestamp'], idx)
+                        st.success("Entry deleted!")
                         st.rerun()
     
     # Plot trends
@@ -940,12 +1053,6 @@ def view_health_data_page():
             fig.add_trace(
                 go.Scatter(x=df['date'], y=df['litter_box_times'], name='Litter Box Uses'),
                 row=2, col=1
-            )
-        
-        if 'weight' in df.columns:
-            fig.add_trace(
-                go.Scatter(x=df['date'], y=df['weight'], name='Weight (kg)'),
-                row=2, col=2
             )
         
         fig.update_layout(height=600, showlegend=True)

@@ -98,7 +98,7 @@ def init_session_state():
         st.session_state.edit_entry_cat = None
     if 'edit_entry_date' not in st.session_state:
         st.session_state.edit_entry_date = None
-    
+
     # FIXED: Add form state management for different cats
     if 'health_form_data' not in st.session_state:
         st.session_state.health_form_data = {}
@@ -498,7 +498,7 @@ def generate_cat_summary(cat_name: str) -> str:
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <div><strong>Age:</strong> {profile.get('age', 'Not set')}</div>
             <div>strong>Breed:</<strong> {profile.get('breed', 'Not set')}</div>
-            <div><strong>Weight:</strong> {profile.get('weight', 'Not set')}</div>
+            <div>strong>Weight:</<strong> {profile.get('weight', 'Not set')}</div>
             <div><strong>Vet Visits:</strong> {len(profile.get('vet_visits', []))}</div>
         </div>
     </div>
@@ -647,16 +647,15 @@ def cat_profiles_page():
             if existing_visits:
                 st.write("**Existing Visits:**")
                 for j, visit in enumerate(existing_visits):
-                    col_a, col_b, col_c = st.columns([2, 3, 1])
+                    col_a, col_b = st.columns([2, 3])
                     with col_a:
                         st.write(f"**{visit['date']}**")
                     with col_b:
                         st.write(visit.get('notes', 'No notes'))
-                    with col_c:
-                        if st.button("🗑️", key=f"delete_visit_{cat_to_edit}_{j}"):
-                            st.session_state.cat_profiles[cat_to_edit]['vet_visits'].pop(j)
-                            save_data()
-                            st.rerun()
+                    if st.button("🗑️", key=f"delete_visit_{cat_to_edit}_{j}"):
+                        st.session_state.cat_profiles[cat_to_edit]['vet_visits'].pop(j)
+                        save_data()
+                        st.rerun()
             
             # Add new vet visit
             st.write("**Add New Visit:**")

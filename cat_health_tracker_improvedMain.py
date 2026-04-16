@@ -1,3 +1,6 @@
+# Cat Health Tracker - Fixed Version
+# Removed bcrypt dependency and simplified authentication
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,7 +9,6 @@ import json
 import requests
 from datetime import datetime, timedelta
 import hashlib
-import bcrypt
 import os
 from cryptography.fernet import Fernet
 import plotly.express as px
@@ -27,7 +29,7 @@ def init_db():
     conn = sqlite3.connect('cat_health_tracker.db', check_same_thread=False)
     c = conn.cursor()
     
-    # Users table
+    # Users table - simplified without bcrypt
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,12 +111,14 @@ def init_db():
 # Initialize database
 init_db()
 
-# Authentication functions
-def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+# Simple authentication functions (without bcrypt)
+def hash_password_simple(password):
+    """Simple password hashing using SHA-256"""
+    return hashlib.sha256(password.encode()).hexdigest()
 
-def verify_password(password, hashed):
-    return bcrypt.checkpw(password.encode('utf-8'), hashed)
+def verify_password_simple(password, hashed):
+    """Verify password using simple hash comparison"""
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 def get_user_id(username):
     conn = sqlite3.connect('cat_health_tracker.db', check_same_thread=False)
@@ -169,10 +173,14 @@ Response:
         # This is where you'd integrate with Hugging Face Mistral 7B
         mock_responses = {
             "weight": "Weight monitoring is crucial for cat health. A sudden change of more than 10% can indicate health issues. Weigh your cat regularly, ideally at the same time each day. Track trends over time rather than single measurements.",
-            "vomiting": " occasional vomiting can be normal, but frequent vomiting requires attention. Withhold food for 12 hours, then offer small frequent meals of bland food. If vomiting persists for more than 24 hours or is accompanied by other symptoms, consult your veterinarian.",
+            "vomiting": "Occasional vomiting can be normal, but frequent vomiting requires attention. Withhold food for 12 hours, then offer small frequent meals of bland food. If vomiting persists for more than 24 hours or is accompanied by other symptoms, consult your veterinarian.",
             "diarrhea": "Withhold food for 12 hours, then offer small frequent meals of boiled chicken and rice. Ensure your cat stays hydrated. If diarrhea persists for more than 24-48 hours, contains blood, or your cat shows other symptoms, seek veterinary care.",
             "lethargy": "Lethargy can indicate various health issues. Monitor for other symptoms like changes in appetite, vomiting, or difficulty breathing. If lethargy persists for more than 24 hours or worsens, consult your veterinarian.",
             "urination": "Changes in urination patterns can indicate urinary tract issues, kidney problems, or diabetes. Monitor frequency, volume, and color. If you notice straining, blood in urine, or increased frequency, seek veterinary attention promptly.",
+            "sneeze": "Occasional sneezing can be normal, but frequent sneezing may indicate respiratory issues, allergies, or infections. Monitor for other symptoms like nasal discharge, eye discharge, or changes in appetite. If sneezing persists for more than 24-48 hours, consult your veterinarian.",
+            "discharge": "Eye or nasal discharge can indicate various issues ranging from minor irritations to infections. Clear discharge may be normal, but yellow, green, or bloody discharge requires veterinary attention. Monitor for other symptoms like squinting, pawing at face, or changes in behavior.",
+            "fever": "Cats can run fevers due to infections, inflammation, or other underlying conditions. A normal cat temperature is 100.5-102.5°F (38-39.2°C). If you suspect a fever (above 103°F), consult your veterinarian. Don't give human medications without veterinary guidance.",
+            "appetite": "Changes in appetite can indicate various health issues. A complete loss of appetite for more than 24 hours requires veterinary attention. Monitor for other symptoms like vomiting, diarrhea, or changes in litter box habits.",
             "general": "For general cat care, ensure regular veterinary check-ups, proper nutrition, fresh water, and mental stimulation. Monitor your cat's behavior and litter box habits regularly, as changes can indicate health issues."
         }
         
@@ -180,6 +188,10 @@ Response:
         for keyword, response in mock_responses.items():
             if keyword.lower() in user_input.lower():
                 return response
+        
+        # Cat-specific responses when cat name is mentioned
+        if cat_name:
+            return f"I'd be happy to help with {cat_name}'s health! Could you provide more specific details about what you're concerned about? For example, are you noticing changes in behavior, appetite, litter box habits, or other symptoms?"
         
         return "I'd be happy to help with your cat's health. Could you provide more specific details about what you're concerned about? For example, are you noticing changes in behavior, appetite, litter box habits, or other symptoms?"
         
@@ -246,7 +258,7 @@ def add_vet_visit(cat_id, visit_date, vet_name, reason, diagnosis, treatment, me
 
 def get_vet_visits(cat_id):
     conn = sqlite3.connect('cat_health_tracker.db', check_same_thread=False)
-    c = cursor()
+    c = conn.cursor()
     c.execute("SELECT * FROM vet_visits WHERE cat_id = ? ORDER BY visit_date DESC", (cat_id,))
     visits = c.fetchall()
     conn.close()
@@ -357,7 +369,7 @@ def get_today_tasks(user_id):
         SELECT t.id, t.task_name, t.task_type, c.name as cat_name, t.completed
         FROM tasks t
         JOIN cats c ON t.cat_id = c.id
-        WHERE c.user_id = ? AND (t.next_due = ? OR (t.last_completed IS NULL AND t.created_date <= ?))
+        WHERE c.user_id = ? AND (t.next_due = ? OR (t.last_completed IS NULL AND t.created_at <= ?))
         ORDER BY t.next_due ASC
     """, (user_id, today, today))
     
@@ -437,7 +449,7 @@ def login_page():
                 user = c.fetchone()
                 conn.close()
                 
-                if user and verify_password(password, user[2]):
+                if user and verify_password_simple(password, user[2]):
                     st.session_state.logged_in = True
                     st.session_state.username = username
                     st.session_state.user_id = user[0]
@@ -469,7 +481,7 @@ def register_page():
                     c = conn.cursor()
                     
                     try:
-                        hashed_password = hash_password(password)
+                        hashed_password = hash_password_simple(password)
                         c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)",
                                   (username, hashed_password))
                         conn.commit()
@@ -801,7 +813,7 @@ def add_health_entry_form(cat):
         if submitted:
             add_health_entry(cat[0], weight, water, food, activity, symptoms, medications, notes)
             st.success(f"Health entry added for {cat[1]}!")
-            st.session_state.add_health_entry = False
+            st.session_state.add_health_health_entry = False
             st.rerun()
     
     if st.button("Cancel"):
